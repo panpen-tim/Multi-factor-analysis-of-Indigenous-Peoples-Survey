@@ -1,0 +1,512 @@
+---
+title: "AboriginalPeoplesSurvey"
+author: "Timothy Leung"
+date: "2023-01-11"
+header-includes:
+   - \usepackage{amsmath}
+   - \usepackage{fontspec}
+   - \setmainfont{Calibri}
+output: 
+  bookdown::pdf_document2:
+    latex_engine: xelatex
+    toc: true
+    number_sections: true
+    fig_caption: yes
+    highlight_bw: yes
+    sansfont: Calibri
+    fontsize: 11pt
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(echo=F,warning=F,message=F,cache=T)
+```
+
+```{r load} 
+lz_pack=c("colortools","RColorBrewer","wesanderson","ddpcr",
+          "reshape2","ggplot2","GGally","ggplotify","ggridges","grid",
+          "latex2exp","showtext",
+          "ggstatsplot","dplyr","knitr","kableExtra",
+          "rempsyc","broom","report","captioner",
+          "cowplot","sure","tidygraph","ggpubr",
+          "ordinal","sas7bdat",
+          "FactoMineR","Factoshiny","factoextra",
+          "vcd","rcompanion",
+          "itemanalysis")
+new.packages=lz_pack[!(lz_pack%in%installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+for(pack in lz_pack)
+  eval(parse(text=paste0("library(",pack,")")))
+```
+
+```{r theme,include=F}
+gold_rat=(1+sqrt(5))/2
+pick_col=function(seed=25,num=8){
+qual_col_pals=brewer.pal.info[brewer.pal.info$category=='qual',]
+color=unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))%>%unique
+#;color=unique(c(color,grDevices::colors()))
+num=max(5,num)
+range=length(color);set.seed(seed);pick=sample(range,num)
+temp=c(sapply(1:floor(num/4), function(j)complementary(color[pick[j]],plot=F)),
+  sapply((floor(num/4)+1):floor(num/2),function(j)opposite(color[pick[j]],plot=F)))
+if(num%%2!=0)
+    temp=c(temp,sapply(length(temp):num,function(j)color[pick[j]]))
+return(temp)
+}#pick_col
+col0=pick_col(38,8)
+theme_random=function(col=col0,base_size=20,base_family=""){
+if(length(col)<6)col=pick_col(38,6)
+theme_bw()%+replace%
+theme(
+panel.background=element_rect(fill=col[2]),
+panel.grid.major=element_line(color=col[3]),
+panel.border=element_rect(color=col[1],fill=NA),
+axis.line=element_line(color=col[4]),
+axis.ticks=element_line(color=col[5]),
+axis.text=element_text(color=col[2]),
+strip.background=element_rect(fill=col[3],color=col[2]),
+strip.text=element_text(color=col[5]),
+legend.text=element_text(color="black",angle=45,size=gold_rat^2),
+legend.key.size=unit(1/gold_rat,"cm"), #change legend key size
+legend.key.height=unit(1/gold_rat^2,"cm"), #change legend key height
+legend.key.width=unit(1/gold_rat^2,"cm")
+)#theme
+}#theme_random
+```
+```{r globals}
+dire=getwd()
+dfs=c("aps_2017_en.sas7bdat","aps2012eng.sas7bdat")%>%#names of aps sas7bdat
+  lapply(function(x)read.sas7bdat(paste0(dire,"/",x),debug=T)%>%
+              lapply(factor)%>%as.data.frame
+         )#lapply
+names(dfs)=c("2017","2012")
+```
+
+```{r select}
+#needed but not received
+#GH2_30 2017
+#GH2_06 2012
+Ys=c("2017"="GH2_30","2012"="GH2_06")
+cram=lapply(1:length(dfs),function(j)
+  sapply(names(dfs[[names(Ys[j])]]),function(nm)
+      cramerV(dfs[[names(Ys[j])]][,Ys[j]],dfs[[names(Ys[j])]][,nm],
+              bias.correct=T)%>%unname
+      )%>%#sapply
+    sort(T)
+  )#lapply
+cram_mod=lapply(cram,function(c)c[c>=.4])
+names(cram_mod)=names(Ys)
+```
+\newpage
+# Abstract
+$\ \ \ \ \ \ \ \ \ \ \ $To gain a cursory understanding of the current landscape of healthcare accessibility for Indigenous folks in Canada, I did an environmental scan with Statistics Canada’s open-source data. With my exploratory analysis, I intend to lay a foundation for future supervised classification studies about factors that supersede the populations’ inaccessibility of equitable healthcare. Yet, limited by the format of the questionnaires, the analysis can be no more than a preliminary one. The correlates of the variable of interest- “needed (healthcare) but not received” (expressed need; Statistics Canada, 2014, p.111; 2020, p.765), appeared sparsed and semantically trivial. Indeed, a multiple-factor analysis (MFA) indicated that the expressed need and its correlates failed to drive the dominant patterns of the datasets. I infer that the vast amount of labels for non-responsiveness in the surveys yielded auxiliary levels in the measurements, resulting in near-meaningless observations. Therefore, I suggest we rework the data collection.   
+
+# Introduction
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $Statistics Canada conducts the Indigenous Peoples Surveys- formerly named the “Aboriginal Peoples Survey” (APS; Statistics Canada, 2022b, para.3) until the most recent iteration, by surveying First Nations people living off reserve, Métis and Inuit living in Canada. Six cycles have been performed in 1991, 2001, 2006, 2012, 2017, and 2022, with the latest to be concluded by March 2023 (Statistics Canada, 2009a, b, 2011, 2014, 2020, 2022a). The national surveys composite of topics and questions changed over time according to the researchers’ focus. However, only the cycles since 2012 specifically studied the lack of accessibility to healthcare. Thus, as our primary interest is the expressed need for healthcare for Indigenous folks, only the 2012 and 2017 surveys are relevant. 
+
+\newpage
+# Method
+$\ \ \ \ \ \ \ \ \ \ \ \ \ $The 2017 APS is 20849 by 355, and the 2012 APS is 24803 by 326. All items of the APSs were nominal. Especially given the presence of nonresponsive levels, I cannot derive meaning from the orders of any item’s labels. For that reason, I cannot utilize commonly-used methods in analyzing relations.
+
+## Data screening  
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $Across the 2012 and 2017 APSs, there are multiple occurrences of item- and unit-nonresponses. The design of the measurement allowed for participants- units, to give any of the following nonresponses for a survey question- item: “Don’t know,” “Refusal,” and “Not stated” for the 2012 APS denoted as (7, 8, 9) or (97, 98, 99) and “Valid skip,” “Don’t know,” “Refusal,” and “Not stated” for the 2017 APS marked as (6, 7, 8, 9) or (96, 97, 98, 99)  (Statistics Canada, 2014, pp.33-968; 2020, pp.9-227). As demonstrated in Figure \ref{fig:plot1}, only 30% of the 2012 and 2017 APS items had no nonresponse. Particularly in the 2017 APS, a majority of the items had at least 43% being unusable, while a majority of the participants did not give meaningful answers to at least 43% of the questions. The prominence of the item- and unit-nonresponses make imputation impossible. 
+```{r nonresp}
+# 4 levels of nonresp @2017
+# 3 levels of nonresp @2012
+lv_nr=list("2017"=6:9,"2012"=7:9)
+shortlZ=function(v,j){
+  v=as.numeric(v)
+  lv_nr_temp=lv_nr[[j]];lv_nr_temp=c(lv_nr_temp+90,lv_nr_temp)
+  if(length(unique(v))>20)return(0)
+  return(length(which((v%%100)%in%lv_nr_temp))/length(v))
+}# NOTE number of levels varies from item to item
+totNonresp=lapply(1:length(dfs),function(j)
+  lapply(c("unit_nonresp"=1,"item_nonresp"=2),function(k)
+    apply(dfs[[j]],k,function(x)shortlZ(x,j))
+    )#lapply
+  )#lapply
+```
+```{r,fig.cap="nonresponses\\label{fig:plot1}"}
+c("unit"=lapply(1:length(dfs),function(j)
+  gghistostats(data.frame(unit_nonresp=totNonresp[[j]]$unit_nonresp),unit_nonresp,
+             ggtheme=theme_random(),
+             bin.args=list(color=col0[8],fill=col0[8]),
+             centrality.line.args=list(color=col0[7],linewidth=1,linetype="dashed"),
+             ggplot.component=list(theme(text=element_text(size=6)))
+             )+#gghistostats
+    labs(subtitle=names(dfs)[j])
+  ),#lapply
+  "item"=lapply(1:length(dfs),function(j)
+  gghistostats(data.frame(item_nonresp=totNonresp[[j]]$item_nonresp),item_nonresp,
+             ggtheme=theme_random(),
+             bin.args=list(color=col0[8],fill=col0[8]),
+             centrality.line.args=list(color=col0[7],linewidth=1,linetype="dashed"),
+             ggplot.component=list(theme(text=element_text(size=6)))
+             )+#gghistostats
+    labs(subtitle=names(dfs)[j])
+  )#lapply
+  )%>%#c
+  grid.arrange(grobs=.,
+    top=textGrob("Proportions of nonresponses by row (unit) and column (item)",
+                 gp=gpar(fontsize=12,fontface="bold")))
+```
+
+## Procedure
+
+### Cramer's $V$  with bias-correction
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ $I will use Cramer's $V$ in place of correlation as all variables in all data sets are nominal.  
+$\begin{cases}\hat\phi^2=\sum_{i\in[1,r]}\sum_{j\in[1,c]}\frac1{p_{i+}\cdot p_{+j}}\cdot\left(p_{ij}-p_{i+}\cdot p_{+j}\right)^2,\\\tilde r=r-\frac{(r-1)^2}{n-1},\\\tilde c=c-\frac{(c-1)^2}{n-1},\\\tilde\phi^2_+=\max\left(0,\hat\phi^2-\frac{(r-1)\cdot(c-1)}{n-1}\right),\\\tilde V=\left(\frac{\tilde\phi_+^2}{\min(\tilde r,\tilde c)-1}\right)^{\frac12}\end{cases}$ (Bergsma, 2013, pp.2,3).  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ $As a rule of thumb, as long as $\tilde V\ge0.4$, we can consider the association between the two respective nominal variables to be at least moderate (Lee, 2016, p.560).  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $Here, I will use the statistics as a proxy of feature importance related to our variable of interest, expressed need, so that I can perform factor analyses with a focus on only the variables that reasonably correlate to it.
+
+### Multiple-factor analysis (MFA)
+$\ \ \ \ \ \ \ \ \ \ \ $Here, I aim to reduce the dimensionality of the datasets and depict factors contributing to the dominant patterns. If some of the correlates of the expressed need are among the elements, it may be justifiable to use them for further classification analysis. Limited by the fact that all variables are nominal, I cannot use Principal Component Analysis (PCA) for the variables’ lack of variance structures (Finnstats, 2022). Instead, I will apply Multiple-factor analysis (MFA), in which I gather the variables by groups, compute some variation of PCA, give weights to each PCA according to their inertia and augment them, analyzing the global structures (Abdi & Valentin, 2007). In the context of the APSs, given that Statistics Canada already grouped the items by topics, I naturally followed their format.  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $Guiding the decision about the number of dimensions to attend to, there is no method better than an arbitrary yet educated guess, namely the Elbow method. Ideally, we accept the minimal number of dimensions that cumulatively explain most of the variance and mark a sharp change in the decrease of variance per increased dimension. The cumulative percentage of explained variance should be at least 50% to be satisfactory (Hair et al., 2009, p.108).
+
+\newpage
+# Analysis
+
+## Cramer's $V$
+$\ \ \ \ \ \ \ \ \ \ \ \ \ $The responses to the expressed need item- “GH2-30” in 2017 and “GH2_06” in 2012 strongly relate to only the respondents’ disability, health issues, recent or chronic, and interactions with the healthcare system. Perhaps, somewhat indicative is that those who expressed healthcare inaccessibility also seemed to suggest that the healthcare system had too high of a cost and too long of wait times. The variables on cost were “GH2_35E” in 2017 and “GH2_07E” in 2012, and those on wait time were “GH2_35NA” in 2017 (see Table \ref{tab:kable}).I would argue that none of the variables related to the expressed need is semantically insightful. People who personally experienced the flaws in the healthcare system in their environment and had pressing demands for medical support would naturally align with the advocacy for better accessibility.
+```{r kable}
+lapply(cram_mod,function(x)x[1:25])%>%
+  kable(col.names="Cramers V",
+        caption="display of the top 25 stat of 2017(left) and 2012(right)")%>% 
+  kable_styling(c("scale_down","striped","HOLD_position"))
+```
+```{r selected}
+dfs1=lapply(1:length(dfs),function(j)dfs[[j]][,names(cram_mod[[j]])%>%sort])
+```
+
+\newpage
+## MFA
+```{r mfa}
+mfaS=lapply(1:length(dfs1),function(j){
+  #exclude the dependent variable
+  var_names=subset(dfs1[[j]],select=names(dfs1[[j]])!=Ys[[j]])%>%names
+  #names of groups: 1st col; element: 2nd col
+  temp=strsplit(var_names,"[_]")%>%as.data.frame%>%t
+  nm_gp=unique(temp[,1])
+  len_gp=lapply(nm_gp,function(gp)temp[temp[,1]==gp,2]%>%unname)%>%lengths%>%
+    c(1,.)
+  nm_gp=c(Ys[j],nm_gp)
+  #id_sup_gp=grep("GH2",nm_gp)#suppressed groups' id
+  list(
+    mfa=length(len_gp)%>%
+    MFA(
+    dfs1[[j]][,c(Ys[[j]],var_names)],
+    len_gp,
+    rep("n",.),
+    ncp=.,
+    name.group=nm_gp,num.group.sup=1,
+    graph=F
+    ),#MFA
+    nm_gp=nm_gp
+  )#list
+})#lapply
+```
+
+```{r cvp,fig.cap="elbow method\\label{fig:plot2}"}
+cvp=lapply(1:length(dfs),function(j){
+  temp=get_eigenvalue(mfaS[[j]]$mfa)
+  list(cvp=temp[temp[,3]<=50,],
+       plot=fviz_screeplot(mfaS[[j]]$mfa,barfill=col0[8],linecolor=col0[7],
+                           ggtheme=theme_random())+
+         labs(subtitle=paste0(names(Ys[j]),"-APS"),
+           y="explained variance (%)")
+       )#list
+})
+names(cvp)=names(Ys)
+lapply(cvp,function(lz)lz$plot)%>%grid.arrange(grobs=.)
+lapply(cvp,function(lz)lz$cvp)%>%
+kable(caption=paste0("2017(top); 2012(bottom)","-elbow"))%>% 
+  kable_styling(c("scale_down","striped","HOLD_position"))
+decelerate=lapply(cvp,function(lz)abs(diff(diff(lz[[1]][,2])))%>%
+                    which.max%>%names)
+```
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $According to the elbow method (see Figure \ref{fig:plot2}), the rate of decrease in the percentage of explained variance per dimension increased changed the most drastically at (`r toString(paste(decelerate))`) for the year (`r toString(names(Ys))`) respectively, so it would stand to reason that we should consider the same number of dimensions in the following Multiple Factor Analysis.  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $Readers should note that despite having chosen a relatively cumbersome number of dimensions, neither of the MFAs covered a good portion of the variances (see Table \ref{tab:cvp}).  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $Upon dissecting the MFA findings, I can draw some themes by group, but I am uncomfortable assigning them individual variables or relating any of them to the expressed need variable. In the 2017 APS (see Figure \ref{fig:plot3}), the top five groups contributing to the first dimension were all disclosure of disabilities, namely “DUNK,” “DMOB,” “DDEXT,” “DFLXB,” and “DVISN.” These are Disability indicators, including unknown conditions, mobility, dexterity, flexibility and optical issues (Statistics Canada, 2020, p.6). The top five groups contributing to the next dimension mainly were on education attainment, namely “PSS,” “CPSA,” “EHS,” “SMK,” and “EDNT.” Those are “[having] obtained education above high school,” “currently attending post-secondary [education],” “[having] completed [a] high school diploma,” smoking habits and having expressed desire of but not having obtained an education level. The third dimension’s top five contributors returned to the theme of disclosed disabilities, such as “DFLXB,” “DMOB,” “DPAIN,” “DDEXT,” and “DCOGN,” most of which were elaborated above except for “DCOGN-” cognitive disabilities.  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ $In the 2012 APS (see Figure \ref{fig:plot6}), the first theme appeared to be a mixture of social capital and health indicators: “CC2,” “SMK,” “GH1,” “GH2,” and “CS-” chronic health conditions, smoking habits, general self-perceived health and accessibility of healthcare and support network. The second theme of the 2012 APS remained somewhat scattered. They could be about participants’ employment and connection with their heritage: “DEMPSTAT,” “LMAM,” “LM,” ”DTRACTYR,” and “DTRACTDO-” employment status, conditions, mobility, and habits and interest in engaging with traditional ceremonies. The third theme appeared clearly as the social determinants of health, namely “FS,” “CS,” “LMAM,” “HOU,” and “MH-” food security, social support network, employment status, dwelling condition and mental health. The fourth and last dimension we chose to examine did not appear informative. All groups are duplicates from the previous except for “DMJH” and “DFTPT-” whether or not a respondent held multiple jobs and worked full-time.  
+
+```{r dimRed,fig.cap=paste0(unlist(lapply(c(2017,2012),function(f)paste(f,"MFA",c("group","ind vari","expressed need on dim"),sep="-"))),"\\label{fig:plot",3:8,"}"),fig.fullwidth=T}
+id_row=sapply(1:length(dfs),function(j)
+                which(row.names(cvp[[j]]$cvp)==decelerate[[j]]))#sapply
+
+for(j in 1:length(dfs)){
+  #group
+  lapply(1:id_row[j],function(k)fviz_contrib(mfaS[[j]]$mfa,"group",k,col0[8],top=5,
+                                             ggtheme=theme_random())+
+           labs(title=paste0("Dim.",k),y=ifelse(k==1,"contributions (%)",""))
+           )%>%#lapply
+  grid.arrange(grobs=.,nrow=1,
+    top=textGrob(paste0(names(Ys[j]),"-Contributions of groups to"),
+                 gp=gpar(fontsize=12,fontface="bold")))
+  cat('\n\n')
+  #quali.var
+  lapply(1:id_row[j],function(k)fviz_contrib(mfaS[[j]]$mfa,"quali.var",k,col0[8],top=6,
+                         ggtheme=theme_random())+
+           labs(title=paste0("Dim.",k),y=ifelse(k==1,"contributions (%)",""))
+           )%>%#lapply
+  grid.arrange(grobs=.,nrow=1,
+    top=textGrob(paste0(names(Ys[j]),"-Contributions of variables (qual) to"),
+                 gp=gpar(fontsize=12,fontface="bold")))
+  cat('\n\n')
+  #confidence ellipses
+  col1=sample(names(wes_palettes),1)%>%wes_palette
+  lapply(2:id_row[j],function(k)
+    fviz_mfa_quali_biplot(mfaS[[j]]$mfa,(k-1):k,
+      repel=T,habillage=Ys[j],addEllipses=T,
+      col.ind.sup=col1[1],col.ind=col1[2],col.var=col1[4],
+      col.quanti.sup=col1[1],col.quali.sup=col1[3],
+      ggtheme=theme_random())+#palette="rickandmorty",
+      labs(title=NULL,subtitle=names(Ys[j]))+
+      theme(legend.position=ifelse(k==id_row[j],"right","none"))
+    )%>%#lapply
+grid.arrange(grobs=.,nrow=1,
+    top=textGrob(paste0(names(Ys[j]),
+                        "-Biplot of individuals and qualitative variables"),
+                 gp=gpar(fontsize=12,fontface="bold")))
+  cat('\n\n')
+}#for
+```
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $The patterns arising from individual (qualitative) variables were downright absurd. Most of the variables linked to the 2012 and 2017 APSs’ dimensions of interest were on the levels of nonresponse (8= ”Refusal” and 9= ”Not stated”; see Figures \ref{fig:plot4} and \ref{fig:plot7}). Although we could make a case that in the 2017 APSs’ Dim2 vs. Dim3 biplot- Figure \ref{fig:plot5}, the expressed need’s meaningful levels- “Yes” and “No” significantly contributed to the variability of the third dimension, by which I established to be the disclosed disabilities theme, I caution readers that the explained variance of Dim3 was extremely low (4.7%). We could also notice that Dim3 and Dim4 of 2012 APS had a high positive correlation due to the near-45-degree slope (see Figure \ref{fig:plot8}), but for the same reason, plus the fact that the variability linked to the “Refusal” nonresponse was the most dominant, the observation might not be sound. Otherwise, the biplots from the 2012 and 2017 APSs indicated that the examined dimensions captured mostly only the variabilities of the expressed need’s nonresponse levels.
+
+\newpage
+# Conclusion
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $In summary, I caution against drawing hasty conclusions about the Indigenous populations’ expressed needs for more accessible healthcare out of the data at hand. We might find evidence that those who displayed the expressed needs might also have experienced flaws in the healthcare system serving them, namely being too costly or tardy. We might see hints of correlations among themes, namely social determinants of health and employment conditions (Dim3 vs Dim4 in 2012 APS) or explanatory relations between expressed needs for healthcare accessibility and the topic of disclosed disabilities (GH2_30 to Dim3 in 2017 APS). However, solely based on the 2012 and 2017 APS datasets, we must examine such findings incredulously as the supporting facts that empower the observations are non-existent.  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $The datasets might have correctly piqued our interest in the questions about who may be allies of improving Indigenous healthcare accessibility, but they certainly have not answered how the Indigenous populations want the changes to bring about or by whom. In a more focused study, we shall hone in on folks who have already expressed the need and tune into their perspectives from their priorities.  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ $I remark that we genuinely cannot improve the data quality from the given datasets. It is not uncommon for data analysts to arbitrarily collapse some levels across all items in a survey after the data collection is finalized. Even with justifications, it is a controversial method in the statistics field because the action is an offence to methodological conventions, for it undermines the interval-scaled properties of latent variables regardless of the observed variables’ scales and makes the items’ distributional properties unreliable (Grimbeek et al., 2005, p.3), not to mention that it bounds to lose information from the responses (DiStefano et al., 2021, p.11). Proponents of the method believe it facilitates model-based analysis (DiStefano et al., 2021, pp.2,11) and reduces redundancy (Van Dusen & Nissen, 2022, p.2), improving the analysis’ intelligibility (Grimbeek et al., 2005, p.2). In particular, Van Dusen and Nissen (2022) justified their choice of survey-level combination using point-biserial correlation coefficients under the assumption that their Likert-scaled data had underlying continuous distributions and the condition that all items had the same number of levels. In our situation, neither our data was continuous- it was nominal, nor did the questions all share the same number of points- they ranged from 2 to about 20,000. In the [Appendix](#Appendix), I will demonstrate how we would have justified the collapse of survey levels if the situation allowed.  
+\newpage
+\begin{center}References\end{center}  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Abdi, H., & Valentin, D. (2007). Multiple factor analysis (MFA). *Encyclopedia of measurement and statistics*, 657-663.  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Attali, Y., & Fraenkel, T. (2000). The point‐biserial as a discrimination index for distractors in multiple‐choice items: Deficiencies in usage and an alternative. *Journal of Educational Measurement, 37*(1), 77-86.  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Bergsma, W. (2013). A bias-correction for Cramér’s V and Tschuprow’s T. *Journal of the Korean Statistical Society, 42*(3), 323-328.  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+DiStefano, C., Shi, D., & Morgan, G. B. (2021). Collapsing categories is often more advantageous than modeling sparse data: investigations in the CFA framework. *Structural Equation Modeling: A Multidisciplinary Journal, 28*(2), 237-249.
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Finnstats. (2022, November 20). *PCA for Categorical Variables in R. R-bloggers*. https://www.r-bloggers.com/2022/11/pca-for-categorical-variables-in-r/  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Glass, G. V., & Hopkins, K. D. (1996). *Statistical methods in education and psychology* (3rd ed.). Allyn & Bacon.  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Grimbeek, P., Bryer, F., Beamish, W., & D’Netto, M. (2005, January). Use of data collapsing strategies to identify latent variables in CHP questionnaire data. In *Proceedings of 3rd International Conference on Cognition, Language, and Special Education. Brisbane: Griffith Research Online *(pp. 125-39).  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Hair, J., Anderson, R., & Babin, B. (2009). *Multivariate Data Analysis*. Prentice Hall.
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Lee, D. K. (2016). Alternatives to P value: confidence interval and effect size. *Korean journal of anesthesiology, 69*(6), 555-562.  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Pagès, J. (2014). *Multiple factor analysis by example using R*. CRC Press.   
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Statistics Canada. (2009a). *Aboriginal Peoples Survey, 1991*. Abacus Data Network. https://abacus.library.ubc.ca/dataset.xhtml?persistentId=hdl:11272.1/AB2/J8PQNR  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Statistics Canada. (2009b). *Aboriginal Peoples Survey, 2001*. Abacus Data Network. https://abacus.library.ubc.ca/dataset.xhtml?persistentId=hdl:11272.1/AB2/OAZOFP  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Statistics Canada. (2011). *Aboriginal Peoples Survey, 2006 [2009]*. Abacus Data Network. https://abacus.library.ubc.ca/dataset.xhtml?persistentId=hdl:11272.1/AB2/1LW8BC  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Statistics Canada. (2014). *Aboriginal Peoples Survey, 2012*. Abacus Data Network. https://abacus.library.ubc.ca/dataset.xhtml?persistentId=hdl:11272.1/AB2/0T6DYF  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Statistics Canada. (2020). *Aboriginal Peoples Survey, 2017*. Abacus Data Network. https://abacus.library.ubc.ca/dataset.xhtml?persistentId=hdl:11272.1/AB2/U0UXQJ  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Statistics Canada. (2022a, November 25). *Indigenous Peoples Survey (IPS)*. https://www.statcan.gc.ca/en/survey/household/3250  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Statistics Canada. (2022b, December 14). *Surveys about Indigenous Peoples*. https://www.sac-isc.gc.ca/eng/1321384019753/1605196725394  
+
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+\setlength{\parskip}{8pt}
+Van Dusen, B., & Nissen, J. M. (2020, January). Criteria for collapsing rating scale responses: A case study of the CLASS. *In 2019 Physics Education Research Conference Proceedings.*
+
+\setlength{\parindent}{0in}
+\setlength{\leftskip}{0in}
+\setlength{\parskip}{0pt}
+\newpage
+# Appendix {#Appendix}
+\begin{center}Novel Justification for rating-scale combination \end{center}
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ $Van Dusen and Nissen (2020) explained that we could collapse a set of survey levels if their distributions do not differ significantly from one to another. We back such a judgement by reading the means or density curves of the levels’ point-biserial correlation. Instead of examing the levels’ validity, a point-biserial correlation is usually calculated in item analyses (or item discriminations) in examining the items’ validity- precisely, it is to correlate respondents’ performance on an item (right or wrong) with their performance on the criterion (how many answers does one score as correct). The formula is:  
+$r_{pb}(_{[resp]}x,_{[level]}\phi)=\frac{\overline{\#-{item}_y=key_\phi\ per\ {resp}_x}-\overline{\#-{item}_y\ne key_\phi\ per\ {resp}_x}}{S(\#-{item}_y=key_\phi\ per\ {resp}_x)}\\\cdot\sqrt{\frac1{\{\#-resp\}}\cdot\{\#-resp\mid {item}_y=key_\phi\}\cdot\{\#-resp\mid {item}_y\ne key_\phi\}}$  
+(Attali & Fraenkel, 2000, p.77), where  
+$r_{pb}(x,\phi)\cdot\sqrt{\frac{\{\#-resp\}-2}{1-r_{pb}^2(x,\phi)}}\sim\sf T(\{\#-resp\}-2)$ under $H_0\colon r_{pb}=0$ (Glass & Hopkins, 1996, pp.134, 364). The current, novel method re-appropriates the said correlation for the levels’ distribution, thus expanding the construct's substance.  
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ $More fundamentally, the current method alters the structure of the point-biserial correlation's construct. Only Van Dusen's and Nissen's (2020) article explicitly applied the R package, "itemanalysis" for such a task. To investigate its methodology, I have summarized their R code as the following formulae:  
+$\underline{Let}$ there be $X\ \#-$respondents, $Y\ \#-$items, and $\Phi\ \#-$possible options.  
+with $_{[data\ matrix]}D_{X\times Y},\ _{[key\ vector]}\vec K_{1\times Y},\ _{[options=possible\ levels]}\vec\Phi_{1\times \Phi},\\\begin{cases}\vec S_{0,(1\times X)}(\phi,y)=\vec t_{y,\forall x\in X}(\vec D_y=\phi)&\ldots {Perf}_{"item"=option}= ID(resp\mid {item}_y\ match\ {option}_\phi)(\phi,y),\\\mathbf M_{X\times Y}=\{\vec t_{x,(1\times Y)}(\vec D_y=K_y)\}_{\forall x\in X},\\\tilde S_{t,(1\times X)}(y)=\frac1{Y-1}\cdot \sum_{y'\in Y}\mathbf M_{y'\backslash y}&\ldots {Perf}_{Criterion}=ID(\sum_x{\#-items_y\ match\ key_y})(y),\\\vec S_{t,(1\times X)}=\frac1Y\cdot \sum_{y'\in Y}\mathbf M_{y'}.\end{cases}\\\forall(\phi,y)\in \Phi\times Y,\ Cor_{item\ analysis}(\phi,y)=\begin{cases}cor\left(S_0(\phi,y),\tilde{S_t}(y)\right)& if\ correction,\\ cor\left(S_0(\phi,y),S_t\right)& o.w.\end{cases}$  
+Obviously, $\forall c\in\mathbf R,\ cor(A,c\cdot B)=\frac{Cov(A,c\cdot B)}{\sqrt{V(A)\cdot V(c\cdot B)}}=\frac{c\cdot Cov(A,B)}{\sqrt{c^2\cdot V(A)\cdot V(B)}}=sgn(c)\cdot Cor(A,B)$,  
+so $\forall(\phi,y)\in \Phi\times Y,\ Cor_{item\ analysis}(\phi,y)=\begin{cases}cor\left(S_0(\phi,y),\sum_{y'\in Y}\mathbf M_{y'\backslash y}\right)& if\ correction,\\ cor\left(S_0(\phi,y),\sum_{y'\in Y}\mathbf M_{y'}\right)& o.w.\end{cases}$   
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ $Despite having the method laid out, there misses one crucial piece of information: How do we derive a set of "correct" answer keys in a survey? Van Dusen and Nissen (2020) did not clarify what “key” in the Item Analysis with which we should compare each item’s responses, so I came up with two methods to extract the “overall score” (Van Dusen & Nissen, 2020, p.4): (1) by assuming that the item-wise responses are continuous, take the means of responses for the columns and transform the “means” back into the format of the possible levels; (2) by treating the responses as nominal, only count the item-wise median responses as the key.  
+
+```{r collScale,fig.cap="Demonstration-pb correlation for rating-scale combination\\label{fig:plot9}"}
+idDemo=lapply(dfs,function(df)sapply(df,levels)%>%lengths)%>%
+lapply(function(lv){
+  un=unique(lv)%>%sort;names(un)=un
+  lapply(un,function(u)which(lv==u))#lapply
+})%>%#lapply
+lapply(function(lz)lz[[
+  lengths(lz)%>%which.max
+]])#lapply
+dfs_temp=lapply(1:length(dfs),function(j)dfs[[j]][,idDemo[[j]]])
+itemAnal=lapply(dfs_temp,function(df){
+  dat=sapply(df,as.numeric)
+  key=colMeans(dat,na.rm=T)%>%round
+  itemanalysis1(apply(dat,2,as.character)%>%as.data.frame,
+                key%>%sapply(as.character),
+                unique(sapply(dat,unique))%>%sort%>%sapply(as.character),
+                correction=T,verbose=F
+                )$dist.disc#only keep the corrected point-biserial mat
+})#lapply
+#display mat
+lapply(itemAnal,head)%>%
+  kable(digits=3,
+        caption="(\"average\")first 6 items' point-biserial correlations of 2017(top) and 2012(bottom)")%>% 
+  kable_styling(c("scale_down","striped"))
+#graph
+lapply(1:length(dfs),function(j){
+  temp=melt(itemAnal[[j]],value.name="point_biserial",
+       varnames=c("survey_items","survey_levels"),variable.factor=T)
+  temp[,"survey_levels"]=factor(temp[,"survey_levels"])
+  ggplot(temp,aes(point_biserial,fill=survey_levels))+stat_density()+
+    theme_random()+labs(subtitle=names(Ys[j]))+
+    scale_fill_manual(values=pick_col(100,length(unique(temp$survey_levels))))
+  })%>%#lapply
+  grid.arrange(grobs=.,
+    top=textGrob("(\"average\")Density plots of point-biserial correlations",
+                 gp=gpar(fontsize=12,fontface="bold")))
+cat("\n\n")
+```
+```{r collScale1,fig.cap=paste0("Demonstration-pb correlation for rating-scale combination\\label{fig:plot",10,"}")}
+#key1: most frequent choice for each survey question
+itemAnal1=lapply(dfs_temp,function(df){
+  dat=sapply(df,as.numeric)
+  #key=apply(dat,2,function(y)names(y%>%factor%>%summary%>%sort(T))[1])
+  key=apply(dat,2,median,na.rm=T)
+  itemanalysis1(apply(dat,2,as.character)%>%as.data.frame,
+                key%>%sapply(as.character),
+                unique(sapply(dat,unique))%>%sort%>%sapply(as.character),
+                correction=T,verbose=F
+                )$dist.disc#only keep the corrected point-biserial mat
+})#lapply
+lapply(itemAnal1,head)%>%
+  kable(digits=3,
+        caption="(\"median\")first 6 items' point-biserial correlations of 2017(top) and 2012(bottom)")%>% 
+  kable_styling(c("scale_down","striped"))
+lapply(1:length(dfs),function(j){
+  temp=melt(itemAnal1[[j]],value.name="point_biserial",
+       varnames=c("survey_items","survey_levels"),variable.factor=T)
+  temp[,"survey_levels"]=factor(temp[,"survey_levels"])
+  ggplot(temp,aes(point_biserial,fill=survey_levels))+stat_density()+
+    theme_random()+labs(subtitle=names(Ys[j]))+
+    scale_fill_manual(values=pick_col(100,length(unique(temp$survey_levels))))
+  })%>%#lapply
+  grid.arrange(grobs=.,
+    top=textGrob("(\"median\")Density plots of point-biserial correlations",
+                 gp=gpar(fontsize=12,fontface="bold")))
+```
+
+ 
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ $Take our situation for example- the distributions of the levels 1 to 5 are almost identical to one another in 2012 APS and 2017 APS (see Figures \ref{fig:plot9} and \ref{fig:plot10}). Additionally, the levels' point-biserial correlation means are (`r toString(round(colMeans(itemAnal[[1]]),3)) `) in 2017 and (`r toString(round(colMeans(itemAnal[[1]]),3)) `) in 2012, justifying combining level 1 with 2 and level 4 with 5. For readers' references, the said correlation method assuming the responses as nominal produced means more or less the same: They are (`r toString(round(colMeans(itemAnal1[[1]]),3))`) in 2017 and (`r toString(round(colMeans(itemAnal1[[1]]),3))`) in 2012.  
+
+```{r pval,fig.cap=paste0(names(Ys),"-Stat(r_pb) distribution\\label{fig:plot",11:12,"}")}
+lz=lapply(1:length(dfs),function(j){
+  stat=itemAnal[[j]]*sqrt((ncol(dfs_temp[[j]])-2)/(1-itemAnal[[j]]^2))
+  stat1=itemAnal1[[j]]*sqrt((ncol(dfs_temp[[j]])-2)/(1-itemAnal1[[j]]^2))
+  lapply(list(stat,stat1),function(st){
+    temp=melt(st,varnames=c("item","level"),value.name="stat")
+    temp[,"level"]=factor(temp[,"level"])
+    qts=sapply(c(T,F),function(l)
+                      qt(.025,ncol(dfs_temp[[1]]),lower.tail=l))
+    ggplot(temp,aes(stat,level,group=level,fill=stat(x)))+
+      geom_density_ridges_gradient()+
+      scale_fill_gradientn(name="Statistics",colours=pick_col(sample(150,1)))+
+      geom_vline(
+          aes(xintercept=qts[1],
+              color=paste0("qt(",ncol(dfs_temp[[j]])-2,",",qts[1]%>%round(3),")")),
+                 linetype="dashed",size=gold_rat)+
+      geom_vline(
+            aes(xintercept=qts[2],
+                color=paste0("qt(",ncol(dfs_temp[[j]])-2,",",qts[2]%>%round(3),")")),
+                 linetype="dashed",size=gold_rat)+
+      scale_color_manual(name="critical values",values=pick_col(63))+
+      theme_random()
+  })%>%#lapply
+  grid.arrange(grobs=.,
+    top=textGrob(
+      latex2exp::TeX("Distribution of $r_{pb}(\\phi,y)\\cdot\\sqrt{\\frac{Y-2}{1-r_{pb}^2(\\phi,y)}}$- \"mean\"(top),\"median\"(bottom)",bold=T),
+                 gp=gpar(fontsize=12,fontface="bold")))
+  cat("\n\n")
+  rMix=rt(1E4*ncol(dfs_temp[[j]]),ncol(dfs_temp[[j]])-2)%>%
+    matrix(ncol=ncol(dfs_temp[[j]]))%>%rowMeans
+  list(
+    p=sapply(stat%>%colMeans,function(s)
+      ifelse(s<=0,mean(rMix<s),mean(rMix>=s))
+      ),
+    p1=sapply(stat1%>%colMeans,function(s)
+      ifelse(s<=0,mean(rMix<s),mean(rMix>=s))
+      )
+  )#list
+})#lapply
+```
+
+$\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ $Here, Glass’ and Hopkins’ (1996) statistics would be $\forall (\phi,y)\in\Phi\times Y,\ r_{pb}(\phi,y)\cdot\sqrt{\frac{Y-2}{1-r_{pb}^2(\phi,y)}}\sim{\sf T}(Y-2)$. Markedly, the statistics are no longer independent because, unlike responses per item, the items per respondent came from the same entity. Instead of taking averages for the survey items and comparing those statistics to the means of T-distributed random variables (i.e., $\overline{r_{pb}(x,\phi)}_x\sim_{iid} \frac1X\cdot\sum_x{\sf T}(X-2)$), it is only reasonable to compare the distributions of each survey level to the upper and lower critical values of ${\sf T}(Y-2)$. In our example, only the point-biserial correlations of levels 6 and 3 are significant at the confidence level, $\alpha=.05$ (see Figures \ref{fig:plot11} and \ref{fig:plot12}).
